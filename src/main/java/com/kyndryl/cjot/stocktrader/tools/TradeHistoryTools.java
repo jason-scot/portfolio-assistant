@@ -47,21 +47,20 @@ public class TradeHistoryTools {
     @Tool(name = "get_portfolio_notional",
             value = "Return the notional value of the portfolio for a given owner. " +
                     "Use ONLY for questions about portfolio notional value.")
-    public String getNotional(String ownerName) {
+    public Float getNotional(String ownerName) {
         log.info("Retrieving notional for owner: " + ownerName);
-        String notional = tradeHistoryClient.getNotional(ownerName);
+        Float notional = tradeHistoryClient.getNotional(ownerName);
         log.info("Retrieved notional: " + notional);
         return notional;
     }
 
-    @Tool(name = "get_return_on_investment",
-            value = "Return the return on investment (ROI) for a given owner and ticker symbol. " +
-                    "Use ONLY for questions about stock ROI.")
-    public String getReturnOnInvestment(String ownerName, String symbol) {
-        log.info("Retrieving ROI for owner: " + ownerName + " with portfolio value: " + symbol);
-        String returns = tradeHistoryClient.getROI(ownerName, symbol);
-        log.info("Retrieved ROI: " + returns);
-        return returns;
+    @Tool(name = "get_trade_history_for_owner_and_symbol",
+            value = "Get trade history of specified owner for the specified stock symbol. ")
+    public List<Transaction> getTradesForOwnerAndSymbol(String ownerName, String symbol) {
+        log.info("Retrieving Trades for owner: " + ownerName + " and symbol: " + symbol);
+        var returns = tradeHistoryClient.getTradesByOwnerAndSymbol(ownerName, symbol);
+        log.info("Retrieved trades: " + returns);
+        return returns.transactions();
     }
 
     @Tool(name = "get_historical_trades",

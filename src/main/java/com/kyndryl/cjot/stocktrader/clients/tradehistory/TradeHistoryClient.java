@@ -42,7 +42,7 @@ public interface TradeHistoryClient {
     @Path("/notional/{owner}")
     @Produces(MediaType.APPLICATION_JSON)
     @WithSpan(kind = SpanKind.CLIENT, value = "TradeHistoryClient.getNotional")
-    public String getNotional(@PathParam("owner") String ownerName);
+    public Float getNotional(@PathParam("owner") String ownerName);
 
     @Path("/shares/{owner}")
     @GET
@@ -60,7 +60,7 @@ public interface TradeHistoryClient {
     @GET
     @Produces(MediaType.APPLICATION_JSON)
     @WithSpan
-    public String getROI(@PathParam("owner") String ownerName, @PathParam("symbol") String symbol);
+    public TransactionResponse getTradesByOwnerAndSymbol(@PathParam("owner") String ownerName, @PathParam("symbol") String symbol);
 
     @Path("/trades/{owner}")
     @GET
