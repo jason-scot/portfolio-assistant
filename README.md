@@ -1,6 +1,8 @@
 # Portfolio Assistant
 ### Stock Trader AI Helper
 
+JS Fork
+
 Manage your portfolio with the help of AI. This application is part of the Stock Trader solution and provides insights and recommendations based on your stock portfolio.
 
 This requires the Portfolio and Stock Quote microservices to be running. Additional microservices may be required as development continues.
