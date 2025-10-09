@@ -1,0 +1,16 @@
+I am trying to run an Ollama LLM on a GPU nodepool created on Azure AKS. There is an issue, however. The GPU nodepool is not working as expected, so I cannot get to the point where Ollama can be deployed onto it. Running command `kubectl logs -n kube-system -l name=nvidia-device-plugin-ds` does not register a GPU. For context, I am using environment variables to store values for easier use with the kubernetes and azure commands. the Azure resource group where my resources live is saved as $RG_STOCKTRADER. The kubernetes service/cluster I need to use is saved as $KS_STOCKTRADER. My Azure subscription ID is $AZ_SUBSCRIPTION_ID. The email address of the resource owner (me) is $OWNER_EMAIL. Please use these if you give me new commands to use which require those values. Also, for reference here is the script which creates the GPU nodepool:
+
+I am trying to run an Ollama LLM on a GPU nodepool created on Azure AKS. There is an issue, however. The GPU nodepool is not working as expected, so I cannot get to the point where Ollama can be deployed onto it. Running command `kubectl logs -n kube-system -l name=nvidia-device-plugin-ds` does not register a GPU. For context, I am using environment variables to store values for easier use with the kubernetes and azure commands. the Azure resource group where my resources live is saved as $RG_STOCKTRADER. The kubernetes service/cluster I need to use is saved as $KS_STOCKTRADER. My Azure subscription ID is $AZ_SUBSCRIPTION_ID. The email address of the resource owner (me) is $OWNER_EMAIL. Please use these if you give me new commands to use which require those values. Also, for reference here is the script which creates the GPU nodepool:
+
+az aks nodepool add \
+  --cluster-name $KS_STOCKTRADER \
+  --resource-group $RG_STOCKTRADER \
+  --name gpupool \
+  --node-vm-size Standard_NC4as_T4_v3 \
+  --node-count 1 \
+  --enable-cluster-autoscaler \
+  --min-count 1 \
+  --max-count 3 \
+  --mode User \
+  --node-taints sku=gpu:NoSchedule \
+  --labels agentpool=gpupool

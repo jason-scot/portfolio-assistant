@@ -1,0 +1,31 @@
+ollama:
+  gpu:
+    enabled: true
+    type: "nvidia"
+    number: 1
+  models:
+    pull:
+      - llama3.2
+
+resources:
+  limits:
+    nvidia.com/gpu: "1"
+  requests:
+    nvidia.com/gpu: "1"
+
+persistentVolume:
+  enabled: true
+  accessModes:
+    - "ReadWriteOnce"
+  size: "60Gi"
+  storageClass: "azure-disk-ssd-standard-llm-sc"
+
+nodeSelector:
+  kubernetes.azure.com/mode: user
+  agentpool: gpupool
+
+tolerations:
+  - key: "sku"
+    operator: "Equal"
+    value: "gpu"
+    effect: "NoSchedule"

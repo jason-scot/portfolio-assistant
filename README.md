@@ -1,262 +1,217 @@
 # Portfolio Assistant
 ### Stock Trader AI Helper
 
-JS Fork
-
 Manage your portfolio with the help of AI. This application is part of the Stock Trader solution and provides insights and recommendations based on your stock portfolio.
 
 This requires the Portfolio and Stock Quote microservices to be running. Additional microservices may be required as development continues.
 
-# Prerequisites 
-## Use auto mode to create EKS Cluster
+# Prerequisites
+### On Azure
+Stocktrader running on Azure; this setup assumes it was spun up via our Terraform scripts
 
-Use AWS Console UI to create cluster with automode turned on
+### Local
+* Java: `JDK@21`, installed via homebrew is simplest if on Mac
+* `docker` CLI commands via Docker Desktop, Podman, Rancher, or similar
+* `wscat` npm package, installed globally via npm is simplest
+* An open terminal having successfully ran `az login` into the subscription you will use
+* `export` the following local env variables for ease of use running the scripts below
+  * `export RG_STOCKTRADER=`<*Your Azure Resource Group*>
+  * `export KS_STOCKTRADER=`<*Your Kubernetes Service running Stocktrader*>
+  * `export AZ_SUBSCRIPTION_ID=`<*Your Azure Subscription ID*>
+  * `export OWNER_EMAIL=`<*Email Address of the Resources Owner*>
+  * `export JWT_ST=`<*Stock Trader App JWT*>
+    * To find this, go to your Stocktrader URL, sign in, and find the JWT in cookies (browser local storage), and save the JWT as this environment variable for ease of use
 
-## Create Storage Class
-```yaml
+# Deployment on Azure
+
+## Create GPU NodePool
+Update the Kubernetes cluster to use the already existing userassigned managed identity, rather than systemassigned managed identity which the resource was provisioned with
+```
+az aks update \
+    --name $KS_STOCKTRADER \
+    --resource-group $RG_STOCKTRADER \
+    --enable-managed-identity \
+    --assign-identity /subscriptions/$AZ_SUBSCRIPTION_ID/resourceGroups/$RG_STOCKTRADER/providers/Microsoft.ManagedIdentity/userAssignedIdentities/aks-managed-identity
+```
+
+Decide which GPU resource to use and confirm that there is enough of a resource quota on the Azure subscription to support it.
+* By default, a subscription may have no allocation for any GPU resources, so the quota may (likely!) need to be increased if deploying something new.
+  * To request increase, go to Quotas in Azure and find the resource you are looking to deploy to see its quota. You can request an increase there too if the quota is too low. Note that various resources require different numbers of processors (the one listed below requires a quota of exactly 4 processors per VM). If you receive an error saying that the quota could not be increased by this method in the console, you must raise a ticket (also in console) to increase the quota. Finally, it should succeed.
+* The following is currently the least expensive AKS-compatible GPU VM available in East US that supports Kubernetes node pools (**Last updated: 2025-09-15**)
+  * **VM Size: Standard_NC4as_T4_v3**
+    * GPU: 1 × NVIDIA T4
+    * vCPUs: 4
+    * Memory: 28 GiB
+    * Use Case: Entry-level GPU workloads, ML inference, graphics rendering
+    * Supported in AKS: Yes 1
+    * Available in East US: Yes 2
+    * Estimated Cost: ~$0.60–$0.70/hour (on-demand); Spot pricing may be significantly lower 3
+
+Once the GPU is chosen and the allocated quota is sufficient, deploy the GPU resource. This script as written will create the GPU resource described above. It will likely take several minutes to deploy.
+```
+az aks nodepool add \
+  --cluster-name $KS_STOCKTRADER \
+  --resource-group $RG_STOCKTRADER \
+  --name gpupool \
+  --node-vm-size Standard_NC4as_T4_v3 \
+  --node-count 1 \
+  --enable-cluster-autoscaler \
+  --min-count 1 \
+  --max-count 3 \
+  --mode User \
+  --node-taints sku=gpu:NoSchedule \
+  --labels agentpool=gpupool
+```
+
+## Create StorageClass in the Kubernetes cluster
+```
+kubectl apply -f - <<EOF
 apiVersion: storage.k8s.io/v1
 kind: StorageClass
 metadata:
-  name: auto-ebs-sc
+  name: azure-disk-ssd-standard-llm-sc
   annotations:
     storageclass.kubernetes.io/is-default-class: "true"
-provisioner: ebs.csi.eks.amazonaws.com
+provisioner: disk.csi.azure.com
 volumeBindingMode: WaitForFirstConsumer
 parameters:
-  type: gp3
-  encrypted: "true"
+  skuName: StandardSSD_LRS
+  storageAccountType: StandardSSD_LRS
+  kind: Managed
+EOF
 ```
 
-```bash
-kubectl appply -f storageclass.yml
+## Configure the GPU Nodepool for Kubernetes
+The following is necessary for Kubernetes to be exposed to and able to use GPUs on Azure. In theory, Azure should set this up automatically, but it seems like in practice that this manual step has to be done.
+
+Configure the nvidia-device-plugin settings, so the GPU nodepool can be used properly with Kubernetes
 ```
-## Create GPU NodePool
-
-From: [Deploy an accelerated workload](https://docs.aws.amazon.com/eks/latest/userguide/auto-accelerated.html) but altered slightly to reduce the amount of time we’re paying for a node that unutilized.
-
-```yaml
-apiVersion: karpenter.sh/v1
-kind: NodePool
-metadata:
-  name: gpu
-spec:
-  disruption:
-    budgets:
-    # - nodes: 10%
-    consolidateAfter: 5m
-    consolidationPolicy: WhenEmpty
-  template:
-    metadata: {}
-    spec:
-      nodeClassRef:
-        group: eks.amazonaws.com
-        kind: NodeClass
-        name: default
-      requirements:
-        - key: "karpenter.sh/capacity-type"
-          operator: In
-          values: ["on-demand"]
-        - key: "kubernetes.io/arch"
-          operator: In
-          values: ["amd64"]
-        - key: "eks.amazonaws.com/instance-family"
-          operator: In
-          values:
-          - g6e
-          - g6
-      taints:
-        - key: nvidia.com/gpu
-          effect: NoSchedule
-      terminationGracePeriod: 0h5m0s
+kubectl apply -f nvidia-device-plugin.yaml
 ```
 
-
-## Deploy Ollama Helm chart
-
-
-First, let’s try the generic install
-
-```bash
-helm repo add otwld https://helm.otwld.com/
-helm repo update
-
-helm install ollama otwld/ollama \
-  --namespace ollama --create-namespace \
-  -f ollama-crd.yaml
-
-NAME: ollama
-LAST DEPLOYED: Mon Aug  4 16:34:24 2025
-NAMESPACE: ollama
-STATUS: deployed
-REVISION: 1
-NOTES:
-1. Get the application URL by running these commands:
-  export POD_NAME=$(kubectl get pods --namespace ollama -l "app.kubernetes.io/name=ollama,app.kubernetes.io/instance=ollama" -o jsonpath="{.items[0].metadata.name}")
-  export CONTAINER_PORT=$(kubectl get pod --namespace ollama $POD_NAME -o jsonpath="{.spec.containers[0].ports[0].containerPort}")
-  echo "Visit http://127.0.0.1:8080 to use your application"
-  kubectl --namespace ollama port-forward $POD_NAME 8080:$CONTAINER_PORT
-
+## Deploy Ollama Helm Chart
+```
+helm repo add otwld https://helm.otwld.com/ &&
+helm repo update &&
+helm install ollama otwld/ollama --namespace ollama --create-namespace -f ollama-crd.yaml
 ```
 
-*Note:* t takes a while for the GPU instance to deploy
+Optional: Give it a minute to deploy, then run the commands that were output and go to the URL that was generated, in order to check on the status of the Ollama deployment. If there is an error running the port-forward command because the pod status is Pending, wait another minute or two and try again.
 
-### Deploy a specific deployment with persistent model storage
-```yaml
-ollama:
-  gpu:
-    enabled: true
-    type: "nvidia"
-    number: 1
-  models:
-    pull:
-    - llama3.2
-resources:
-  limits:
-    nvidia.com/gpu: "1"
-  requests:
-    nvidia.com/gpu: "1"
-
-persistentVolume:
-  enabled: true
-  accessModes:
-    - "ReadWriteOnce"
-  size: "60Gi"
-  storageClass: "auto-ebs-sc"
-
-nodeSelector:
-  eks.amazonaws.com/instance-gpu-name: l40s
-  eks.amazonaws.com/compute-type: auto
-
-tolerations:
-  - key: "nvidia.com/gpu"
-    operator: Exists
-    effect: NoSchedule
-
+## Create the Azure Container Registry (ACR)
+```
+az acr create \
+  --name portfolioassistantacr \
+  --resource-group $RG_STOCKTRADER \
+  --sku Standard \
+  --location eastus \
+  --tags owner=$OWNER_EMAIL purpose="GH Actions Build" solution=stocktrader-portfolio-assistant
 ```
 
-
-## Build and Deploy the Microservice
-
-Create the ECR repository.
-```bash
-aws ecr create-repository \
-    --repository-name ibmstocktrader/portfolioassistant \
-    --region us-east-1 \
-    --tags Key=owner,Value=ryan.claussen@kyndryl.com Key=purpose,Value="GH Actions Build" Key=solution,Value=stocktrader
+## Build the app image and push it to the registry
+```
+mvn clean install
 ```
 
-```bash
-aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin <Your Image Repo>.dkr.ecr.us-east-1.amazonaws.com
+```
+az acr build \
+  --registry portfolioassistantacr \
+  --image ibmstocktrader/portfolioassistant:latest \
+  --file src/main/docker/Dockerfile.jvm \
+  .
 ```
 
+NOTE: If not already done, update `azure-deployment.yaml` file to use the image repo you want to use; default value is: `portfolioassistantacr.azurecr.io/ibmstocktrader/portfolioassistant:latest`
 
-Build and push the image
-```bash
-mvn clean install -Dquarkus.container-image.build=true \
--Dquarkus.container-image.tag=latest \
--Dquarkus.container-image.group=ibmstocktrader \
--Dquarkus.container-image.registry=<Your Image Repo>.dkr.ecr.us-east-1.amazonaws.com && \
-docker push <Your Image Repo>.dkr.ecr.us-east-1.amazonaws.com/ibmstocktrader/portfolioassistant:latest
-
+## Create an ImagePullSecret
+First, enable admin on the ACR
+```
+az acr update -n portfolioassistantacr --admin-enabled true
 ```
 
-Now deploy the pod via a deployment.yaml. Note we're deploying to the stocktrader namespace, so make sure you create that first if it doesn't exist or change to your namespace.
+Then, should be able to do this with the following one-liner
+```
+kubectl create secret docker-registry acr-auth --namespace stock-trader --docker-server=portfolioassistantacr.azurecr.io --docker-username=$(az acr credential show --name portfolioassistantacr --query 'username' -o tsv) --docker-password=$(az acr credential show --name portfolioassistantacr --query 'passwords[0].value' -o tsv)
+```
+### BUT
+If the one-liner does not work, then try as follows
+  > Get the username and first password (passwords[0].value) to the ACR
+  > ```
+  > az acr credential show --name portfolioassistantacr
+  > ```
+  > Create the Kubernetes secret using those values. This will create a secret named acr-auth, which the azure-deployment.yaml file should know about in spec.template.spec
+  > ```
+  > kubectl create secret docker-registry acr-auth \
+  >   --namespace stock-trader \
+  >   --docker-server=portfolioassistantacr.azurecr.io \
+  >   --docker-username=<username> \
+  >   --docker-password=<password>
+  > ```
 
-```bash
-```yaml
-#       Copyright 2025 Kyndryl, All Rights Reserved
-
-#   Licensed under the Apache License, Version 2.0 (the "License");
-#   you may not use this file except in compliance with the License.
-#   You may obtain a copy of the License at
-
-#       http://www.apache.org/licenses/LICENSE-2.0
-
-#   Unless required by applicable law or agreed to in writing, software
-#   distributed under the License is distributed on an "AS IS" BASIS,
-#   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-#   See the License for the specific language governing permissions and
-#   limitations under the License.
-
-
-#Deploy the pod
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: portfolioassistant
-  labels:
-    app: portfolioassistant-stock-trader
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: portfolioassistant
-  template:
-    metadata:
-      labels:
-        app: portfolioassistant
-      annotations:
-        git-repo: "https://github.com/IBMStockTrader/PortfolioAssistant"
-    spec:
-      containers:
-      - name: portfolioassistant
-        image: <Your Image Repo>.dkr.ecr.us-east-1.amazonaws.com/ibmstocktrader/portfolioassistant:latest
-        ports:
-          - containerPort: 9080
-          - containerPort: 9443
-        imagePullPolicy: Always
-        resources:
-          limits:
-            cpu: 1000m
-            memory: 2Gi
-            ephemeral-storage: 256Mi
-          requests:
-            cpu: 500m
-            memory: 1Gi
-            ephemeral-storage: 32Mi
----
-#Deploy the service
-apiVersion: v1
-kind: Service
-metadata:
-  name: portfolioassistant-service
-  labels:
-    app: portfolioassistant
-spec:
-  type: NodePort
-  ports:
-    - name: http
-      protocol: TCP
-      port: 9080
-      targetPort: 9080
-    - name: https
-      protocol: TCP
-      port: 9443
-      targetPort: 9443
-  selector:
-    app: portfolioassistant
-
+## Deploy the image
+```
+kubectl apply -f azure-deployment.yaml -n stock-trader
 ```
 
+## Set up port forwarding
+Get the pods
+```
+kubectl get po -n stock-trader
+```
+In a new terminal, create an environment variable with the name of the pod running the portfolio-assistant service with `export ASSISTANT_POD_NAME=`<*Pod Name*>
 
-```bash
-kubectl apply -f <name>.yml -n stocktrader
+In a second new terminal, run
+  ```
+  kubectl port-forward pod/$ASSISTANT_POD_NAME -n stock-trader 8081:8080
+  ```
 
+In a third new terminal with the found JWT, run the following with the JWT_ST you had exported as an environment variable earlier
+  ```
+  wscat -c ws://localhost:8081/ws/stream -H "Authorization: Bearer $JWT_ST"
+  ```
+
+# Misc.
+To access the GPU nodepool via a debug pod for ssh debug access, run
+```
+kubectl debug node/$NAME_GPUPOOL_NODE -it --image=mcr.microsoft.com/aks/fundamental/base-ubuntu:v0.0.11
 ```
 
-in another tab
-```bash
-kubectl get po -n stocktrader
-kubectl --namespace stocktrader port-forward portfolioassistant-<Some pods> 8081:9080
+Once in a debug pod, to check the extension logs
+```
+cat /host/var/log/azure/nvidia-vmext-status
 ```
 
-In a third tab:
-```bash
-npm install -g wscat
-wscat -c ws://localhost:8081/ws/stream 
+To delete the GPU nodepool, e.g. to save resources when not in use, run this command
+```
+az aks nodepool delete \
+  --resource-group $RG_STOCKTRADER \
+  --cluster-name $KS_STOCKTRADER \
+  --name gpupool
 ```
 
-If the websocket is secured by jwt (you get a 403 or 401 error above), find your jwt in the StockTrader UI/cookies and run like (change to `wss` once you have tls on there)
-```bash
-wscat -c ws://localhost:8081/ws/stream -H "Authorization: Bearer YOUR_JWT_TOKEN"
+To abort a long-running Azure operation in case of an issue, run
+```
+az aks operation-abort --name $KS_STOCKTRADER --resource-group $RG_STOCKTRADER
+```
+
+To export the Node Resource Group of the AKS cluster, for easier use
+```
+export NODE_RG=$(az aks show \
+  --resource-group $RG_STOCKTRADER \
+  --name $KS_STOCKTRADER \
+  --query nodeResourceGroup \
+  -o tsv)
+```
+
+To export the VMSS Name of the GPU nodepool as an environment variable, for easier use
+```
+export VMSSNAME_GPUPOOL=$(az vmss list \
+  --resource-group $NODE_RG \
+  --query "[?contains(name, 'gpupool')].name" \
+  -o tsv)
+```
+
+To export the name of the Kubernetes node that is now running on the GPU nodepool, for easier use
+```
+export NAME_GPUPOOL_NODE=$(az vmss list-instances --resource-group $NODE_RG --name $VMSSNAME_GPUPOOL --query "[0].osProfile.computerName" -o tsv)
 ```
