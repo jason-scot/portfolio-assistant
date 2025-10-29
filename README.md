@@ -1,7 +1,7 @@
 # Portfolio Assistant
-### Stock Trader AI Helper
+### Stock Trader AI Helper with Azure OpenAI
 
-Manage your portfolio with the help of AI. This application is part of the Stock Trader solution and provides insights and recommendations based on your stock portfolio.
+Manage your portfolio with the help of AI. This application is part of the Stock Trader solution and provides insights and recommendations based on your stock portfolio using GPT-4 Turbo.
 
 This requires the Portfolio and Stock Quote microservices to be running. Additional microservices may be required as development continues.
 
@@ -16,6 +16,7 @@ Stocktrader running on Azure; this setup assumes it was spun up via our Terrafor
 * An open terminal having successfully ran `az login` into the subscription you will use
 * `export` the following local env variables for ease of use running the scripts below
   * `export RG_STOCKTRADER=`<*Your Azure Resource Group*>
+  * `export AVZONE_OPENAI=`<*Availability Zone to deploy OpenAI service to*> (NOTE: for lowest latency, use the closest AZ to the AZ of RG_STOCKTRADER that supports Azure OpenAI service, recognizing that not all AZs support OpenAI)
   * `export KS_STOCKTRADER=`<*Your Kubernetes Service running Stocktrader*>
   * `export AZ_SUBSCRIPTION_ID=`<*Your Azure Subscription ID*>
   * `export OWNER_EMAIL=`<*Email Address of the Resources Owner*>
@@ -24,96 +25,64 @@ Stocktrader running on Azure; this setup assumes it was spun up via our Terrafor
 
 # Deployment on Azure
 
-## Create GPU NodePool
-Update the Kubernetes cluster to use the already existing userassigned managed identity, rather than systemassigned managed identity which the resource was provisioned with
-```
-az aks update \
-    --name $KS_STOCKTRADER \
-    --resource-group $RG_STOCKTRADER \
-    --enable-managed-identity \
-    --assign-identity /subscriptions/$AZ_SUBSCRIPTION_ID/resourceGroups/$RG_STOCKTRADER/providers/Microsoft.ManagedIdentity/userAssignedIdentities/aks-managed-identity
-```
+## Create Azure OpenAI Service
+Create an Azure OpenAI service instance. Note that Azure OpenAI availability varies by region - check the [Azure OpenAI Service regions page](https://docs.microsoft.com/en-us/azure/cognitive-services/openai/concepts/regions) for current availability. Also note that Quarkus LangChain4j which is used by this project has hard-coded requirements (limits) for which ChatGPT API versions it can tolerate, so make sure you are using a compatible API/ChatGPT version. This project uses ChatGPT-4 @ turbo-2024-04-09 with API version 2023-05-15.
 
-Decide which GPU resource to use and confirm that there is enough of a resource quota on the Azure subscription to support it.
-* By default, a subscription may have no allocation for any GPU resources, so the quota may (likely!) need to be increased if deploying something new.
-  * To request increase, go to Quotas in Azure and find the resource you are looking to deploy to see its quota. You can request an increase there too if the quota is too low. Note that various resources require different numbers of processors (the one listed below requires a quota of exactly 4 processors per VM). If you receive an error saying that the quota could not be increased by this method in the console, you must raise a ticket (also in console) to increase the quota. Finally, it should succeed.
-* The following is currently the least expensive AKS-compatible GPU VM available in East US that supports Kubernetes node pools (**Last updated: 2025-09-15**)
-  * **VM Size: Standard_NC4as_T4_v3**
-    * GPU: 1 × NVIDIA T4
-    * vCPUs: 4
-    * Memory: 28 GiB
-    * Use Case: Entry-level GPU workloads, ML inference, graphics rendering
-    * Supported in AKS: Yes 1
-    * Available in East US: Yes 2
-    * Estimated Cost: ~$0.60–$0.70/hour (on-demand); Spot pricing may be significantly lower 3
-
-Once the GPU is chosen and the allocated quota is sufficient, deploy the GPU resource. This script as written will create the GPU resource described above. It will likely take several minutes to deploy.
-```
-az aks nodepool add \
-  --cluster-name $KS_STOCKTRADER \
+```bash
+# Create the Azure OpenAI service
+az cognitiveservices account create \
+  --name portfolio-assistant-openai \
   --resource-group $RG_STOCKTRADER \
-  --name gpupool \
-  --node-vm-size Standard_NC4as_T4_v3 \
-  --node-count 1 \
-  --enable-cluster-autoscaler \
-  --min-count 1 \
-  --max-count 3 \
-  --mode User \
-  --node-taints sku=gpu:NoSchedule \
-  --labels agentpool=gpupool
+  --location $AVZONE_OPENAI \
+  --kind OpenAI \
+  --sku S0 \
+  --tags owner=$OWNER_EMAIL created-by=$OWNER_EMAIL purpose="AI and Stock Trader work" solution=stocktrader-portfolio-assistant
+
+# Deploy GPT-4 Turbo model
+az cognitiveservices account deployment create \
+  --name portfolio-assistant-openai \
+  --resource-group $RG_STOCKTRADER \
+  --deployment-name gpt-4 \
+  --model-name gpt-4 \
+  --model-version "turbo-2024-04-09" \
+  --model-format OpenAI \
+  --sku-capacity 10 \
+  --sku-name "Standard"
 ```
 
-## Create StorageClass in the Kubernetes cluster
-```
-kubectl apply -f - <<EOF
-apiVersion: storage.k8s.io/v1
-kind: StorageClass
-metadata:
-  name: azure-disk-ssd-standard-llm-sc
-  annotations:
-    storageclass.kubernetes.io/is-default-class: "true"
-provisioner: disk.csi.azure.com
-volumeBindingMode: WaitForFirstConsumer
-parameters:
-  skuName: StandardSSD_LRS
-  storageAccountType: StandardSSD_LRS
-  kind: Managed
-EOF
-```
+## Create Kubernetes Secret for Azure OpenAI
+Get the API key and create the Kubernetes secret:
 
-## Configure the GPU Nodepool for Kubernetes
-The following is necessary for Kubernetes to be exposed to and able to use GPUs on Azure. In theory, Azure should set this up automatically, but it seems like in practice that this manual step has to be done.
+```bash
+# Get the API key
+AZURE_OPENAI_API_KEY=$(az cognitiveservices account keys list \
+  --name portfolio-assistant-openai \
+  --resource-group $RG_STOCKTRADER \
+  --query "key1" --output tsv)
 
-Configure the nvidia-device-plugin settings, so the GPU nodepool can be used properly with Kubernetes
+# Create the Kubernetes secret with the full deployment endpoint
+kubectl create secret generic azure-openai-secret \
+  --namespace stock-trader \
+  --from-literal=AZURE_OPENAI_API_KEY="$AZURE_OPENAI_API_KEY" \
+  --from-literal=AZURE_OPENAI_ENDPOINT="https://portfolio-assistant-openai.openai.azure.com/openai/deployments/gpt-4"
 ```
-kubectl apply -f nvidia-device-plugin.yaml
-```
-
-## Deploy Ollama Helm Chart
-```
-helm repo add otwld https://helm.otwld.com/ &&
-helm repo update &&
-helm install ollama otwld/ollama --namespace ollama --create-namespace -f ollama-crd.yaml
-```
-
-Optional: Give it a minute to deploy, then run the commands that were output and go to the URL that was generated, in order to check on the status of the Ollama deployment. If there is an error running the port-forward command because the pod status is Pending, wait another minute or two and try again.
 
 ## Create the Azure Container Registry (ACR)
-```
+```bash
 az acr create \
   --name portfolioassistantacr \
   --resource-group $RG_STOCKTRADER \
   --sku Standard \
-  --location eastus \
+  --location $AVZONE_OPENAI \
   --tags owner=$OWNER_EMAIL purpose="GH Actions Build" solution=stocktrader-portfolio-assistant
 ```
 
 ## Build the app image and push it to the registry
-```
+```bash
 mvn clean install
 ```
 
-```
+```bash
 az acr build \
   --registry portfolioassistantacr \
   --image ibmstocktrader/portfolioassistant:latest \
@@ -125,22 +94,22 @@ NOTE: If not already done, update `azure-deployment.yaml` file to use the image 
 
 ## Create an ImagePullSecret
 First, enable admin on the ACR
-```
+```bash
 az acr update -n portfolioassistantacr --admin-enabled true
 ```
 
 Then, should be able to do this with the following one-liner
-```
+```bash
 kubectl create secret docker-registry acr-auth --namespace stock-trader --docker-server=portfolioassistantacr.azurecr.io --docker-username=$(az acr credential show --name portfolioassistantacr --query 'username' -o tsv) --docker-password=$(az acr credential show --name portfolioassistantacr --query 'passwords[0].value' -o tsv)
 ```
 ### BUT
 If the one-liner does not work, then try as follows
   > Get the username and first password (passwords[0].value) to the ACR
-  > ```
+  > ```bash
   > az acr credential show --name portfolioassistantacr
   > ```
   > Create the Kubernetes secret using those values. This will create a secret named acr-auth, which the azure-deployment.yaml file should know about in spec.template.spec
-  > ```
+  > ```bash
   > kubectl create secret docker-registry acr-auth \
   >   --namespace stock-trader \
   >   --docker-server=portfolioassistantacr.azurecr.io \
@@ -149,69 +118,56 @@ If the one-liner does not work, then try as follows
   > ```
 
 ## Deploy the image
-```
+```bash
 kubectl apply -f azure-deployment.yaml -n stock-trader
 ```
 
+# Testing the Application
+
 ## Set up port forwarding
 Get the pods
-```
+```bash
 kubectl get po -n stock-trader
 ```
 In a new terminal, create an environment variable with the name of the pod running the portfolio-assistant service with `export ASSISTANT_POD_NAME=`<*Pod Name*>
 
 In a second new terminal, run
-  ```
-  kubectl port-forward pod/$ASSISTANT_POD_NAME -n stock-trader 8081:8080
+  ```bash
+  kubectl port-forward pod/$ASSISTANT_POD_NAME -n stock-trader 8081:8080
   ```
 
 In a third new terminal with the found JWT, run the following with the JWT_ST you had exported as an environment variable earlier
-  ```
+  ```bash
   wscat -c ws://localhost:8081/ws/stream -H "Authorization: Bearer $JWT_ST"
   ```
 
-# Misc.
-To access the GPU nodepool via a debug pod for ssh debug access, run
-```
-kubectl debug node/$NAME_GPUPOOL_NODE -it --image=mcr.microsoft.com/aks/fundamental/base-ubuntu:v0.0.11
+# Configuration Details
+
+## Application Properties
+If you have reason to change them from the defaults configured in this project, configure the `quarkus.langchain4j.azure-openai.***` Azure OpenAI properties in `application.properties`.
+
+**Important**: The `AZURE_OPENAI_ENDPOINT` environment variable must include the full deployment path:
+`https://<your-service-name>.openai.azure.com/openai/deployments/<deployment-name>`. This is already set in the commands above and should not need to be changed, but it is noted here in case other things are changed which result in this needing to be updated manually. This path configuration allows the Quarkus LangChain4j extension to correctly construct the final API URL by appending `/chat/completions`.
+
+## Maven Dependencies
+NOTE: The project uses the Quarkus LangChain4j Azure OpenAI extension (already set in `pom.xml`):
+
+```xml
+<dependency>
+    <groupId>io.quarkiverse.langchain4j</groupId>
+    <artifactId>quarkus-langchain4j-azure-openai</artifactId>
+</dependency>
 ```
 
-Once in a debug pod, to check the extension logs
-```
-cat /host/var/log/azure/nvidia-vmext-status
-```
+# Troubleshooting
 
-To delete the GPU nodepool, e.g. to save resources when not in use, run this command
-```
-az aks nodepool delete \
-  --resource-group $RG_STOCKTRADER \
-  --cluster-name $KS_STOCKTRADER \
-  --name gpupool
-```
+## Azure OpenAI Service Issues
+- Verify that Azure OpenAI service is available in your chosen region
+- Check that the GPT-4 model deployment is successful and running
+- Ensure the API key is correctly set in the Kubernetes secret
 
-To abort a long-running Azure operation in case of an issue, run
-```
-az aks operation-abort --name $KS_STOCKTRADER --resource-group $RG_STOCKTRADER
-```
-
-To export the Node Resource Group of the AKS cluster, for easier use
-```
-export NODE_RG=$(az aks show \
-  --resource-group $RG_STOCKTRADER \
-  --name $KS_STOCKTRADER \
-  --query nodeResourceGroup \
-  -o tsv)
-```
-
-To export the VMSS Name of the GPU nodepool as an environment variable, for easier use
-```
-export VMSSNAME_GPUPOOL=$(az vmss list \
-  --resource-group $NODE_RG \
-  --query "[?contains(name, 'gpupool')].name" \
-  -o tsv)
-```
-
-To export the name of the Kubernetes node that is now running on the GPU nodepool, for easier use
-```
-export NAME_GPUPOOL_NODE=$(az vmss list-instances --resource-group $NODE_RG --name $VMSSNAME_GPUPOOL --query "[0].osProfile.computerName" -o tsv)
+## Application Logs
+To check application logs for Azure OpenAI connectivity issues:
+```bash
+kubectl logs deployment/portfolioassistant -n stock-trader -c portfolioassistant
 ```
