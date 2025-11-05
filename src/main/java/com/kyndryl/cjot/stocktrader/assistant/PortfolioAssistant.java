@@ -18,7 +18,7 @@ package com.kyndryl.cjot.stocktrader.assistant;
 
 import com.kyndryl.cjot.stocktrader.tools.PortfolioTools;
 import com.kyndryl.cjot.stocktrader.tools.StockTools;
-import com.kyndryl.cjot.stocktrader.tools.TradeHistoryTools;
+// import com.kyndryl.cjot.stocktrader.tools.TradeHistoryTools; // Commented out - service not deployed
 import dev.langchain4j.service.SystemMessage;
 import dev.langchain4j.service.UserMessage;
 import io.quarkiverse.langchain4j.RegisterAiService;
@@ -33,7 +33,8 @@ import org.eclipse.microprofile.faulttolerance.Fallback;
 
 //        "You can ask about their risk tolerance, investment goals, and any specific stocks or sectors they are interested in. " +
 //        "You can ask no more than two questions to gather the necessary information. ")
-@RegisterAiService(tools = {PortfolioTools.class, StockTools.class, TradeHistoryTools.class})
+@RegisterAiService(tools = {PortfolioTools.class, StockTools.class})
+// Note: TradeHistoryTools.class removed temporarily as trade history service is not deployed
 @SystemMessage("""
         # Role 
         Act as a stock trading expert for an experienced portfolio manager.
