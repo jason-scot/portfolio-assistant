@@ -1,7 +1,7 @@
 # Portfolio Assistant
 ### Stock Trader AI Helper with Azure OpenAI
 
-Manage your portfolio with the help of AI. This application is part of the Stock Trader solution and provides insights and recommendations based on your stock portfolio using GPT-4 Turbo.
+Manage your portfolio with the help of AI. This application is part of the Stock Trader solution and provides insights and recommendations based on your stock portfolio using GPT-4 Turbo via the Azure OpenAI service.
 
 This requires the Portfolio and Stock Quote microservices to be running. Additional microservices may be required as development continues.
 
