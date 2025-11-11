@@ -53,6 +53,12 @@ public class PortfolioAssistantWebSocket {
         // We need to extract the JWT from the connection's handshake request
         // and set it in the JwtContextHolder for later use when calling downstream StockTrader services.
         var authHeader = connection.handshakeRequest().header("Authorization");
+        if (authHeader == null || !authHeader.startsWith("Bearer ")) {
+            System.err.println("No valid Authorization header found");
+            connection.close(new CloseReason(400, "Missing or invalid Authorization header"));
+            return;
+        }
+        
         String token = authHeader.substring("Bearer ".length());
         try {
             jwt = jwtParser.parse(token);
@@ -72,6 +78,57 @@ public class PortfolioAssistantWebSocket {
     @RolesAllowed({"StockTrader", "StockViewer"})
     @Timed(description = "Time needed chatting to the agent.")
     public Multi<String> onTextMessage(String question) {
-        return assistant.adviceStreaming(question);
+        // Simply pass through the stream as received from the LLM (service) with minimal buffering,
+        // to avoid character-by-character output but without adding any artificial line breaks
+        TokenBuffer buffer = new TokenBuffer();
+        
+        return assistant.adviceStreaming(question)
+            .onItem().transform(token -> {
+                buffer.addToken(token);
+                return buffer.getAndEmitIfReady();
+            })
+            .filter(result -> !result.isEmpty())
+            .onCompletion().switchTo(() -> {
+                // Emit any remaining content when the stream completes
+                String remaining = buffer.getRemaining();
+                if (!remaining.isEmpty()) {
+                    return Multi.createFrom().item(remaining);
+                }
+                return Multi.createFrom().empty();
+            });
+    }
+
+    // Simplified helper class that simply buffers tokens to avoid character-by-character output
+    // but doesn't break content artificially
+    private static class TokenBuffer {
+        private StringBuilder buffer = new StringBuilder();
+        private int tokenCount = 0;
+        private static final int BUFFER_SIZE = 20; // Larger buffer for smoother OpenAI streaming (adjustable)
+
+        public void addToken(String token) {
+            if (token != null) {
+                buffer.append(token);
+                tokenCount++;
+            }
+        }
+
+        public String getAndEmitIfReady() {
+            // Only emit when we have buffered enough tokens, rather than breaking based on punctuation or character rules
+            if (tokenCount >= BUFFER_SIZE) {
+                String result = buffer.toString();
+                buffer.setLength(0);
+                tokenCount = 0;
+                return result;
+            }
+            
+            return "";
+        }
+
+        public String getRemaining() {
+            String result = buffer.toString();
+            buffer.setLength(0);
+            tokenCount = 0;
+            return result;
+        }
     }
 }
