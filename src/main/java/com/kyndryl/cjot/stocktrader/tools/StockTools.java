@@ -34,12 +34,17 @@ public class StockTools {
     StockQuoteClient stockQuoteClient;
 
     @Tool(name = "get_stock_price",
-            value = "Return the live/most-recent market price for a PUBLIC TICKER (e.g., 'TSLA'). Use ONLY for public stock price/quote questions. " +
-                    "Use to fetch the current price for tickers you’re recommending.Do NOT use for personal portfolios.")
+            value = "Return the live/most-recent market price for a PUBLIC TICKER (e.g., 'TSLA'). Use ONLY for public stock price/quote questions." +
+                    "Use to fetch the current price for tickers you're recommending. Do NOT use for personal portfolios.")
     public Quote getStockPrice(@P("The public stock ticker symbol to look up") String stockSymbol) {
         log.info("Retrieving stock quote for symbol: " + stockSymbol);
-        var quote = stockQuoteClient.getStockQuote(stockSymbol);
-        log.info("Retrieved quote: " + quote);
-        return quote;
+        try {
+            var quote = stockQuoteClient.getStockQuote(stockSymbol);
+            log.info("Retrieved quote: " + quote);
+            return quote;
+        } catch (Exception e) {
+            log.warning("Failed to retrieve stock quote for symbol: " + stockSymbol + ". Error: " + e.getMessage());
+            throw new RuntimeException("Stock quote not found for symbol: " + stockSymbol);
+        }
     }
 }

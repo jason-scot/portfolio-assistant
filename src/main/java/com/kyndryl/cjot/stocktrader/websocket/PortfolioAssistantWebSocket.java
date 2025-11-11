@@ -23,6 +23,7 @@ import io.quarkus.security.Authenticated;
 import io.quarkus.websockets.next.*;
 import io.smallrye.jwt.auth.principal.JWTParser;
 import io.smallrye.jwt.auth.principal.ParseException;
+import io.smallrye.mutiny.Multi;
 import jakarta.annotation.security.RolesAllowed;
 import jakarta.inject.Inject;
 import org.eclipse.microprofile.auth.LoginConfig;
@@ -45,13 +46,7 @@ public class PortfolioAssistantWebSocket {
     @Inject
     PortfolioAssistant assistant;
 
-    @Inject
-    AdvisorAssistant advisorAssistant;
-
     private JsonWebToken jwt;
-
-    private static final com.fasterxml.jackson.databind.ObjectMapper MAPPER =
-            new com.fasterxml.jackson.databind.ObjectMapper();
 
     @OnOpen
     public void onOpen() {
@@ -76,8 +71,7 @@ public class PortfolioAssistantWebSocket {
     @OnTextMessage
     @RolesAllowed({"StockTrader", "StockViewer"})
     @Timed(description = "Time needed chatting to the agent.")
-    public String onTextMessage(String question) {
-        var result = assistant.advice(question);
-        return result;
+    public Multi<String> onTextMessage(String question) {
+        return assistant.adviceStreaming(question);
     }
 }

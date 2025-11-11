@@ -37,8 +37,13 @@ public class PortfolioTools {
             value = "Return a SPECIFIC PERSON'S investment portfolio. Use ONLY when the user asks about someone's portfolio.")
     public Portfolio getPortfolio(@P("The name of the portfolio owner, e.g. 'Frank', 'Tim', or 'Karri' . This is a person's name.") String owner) {
         log.info("Retrieving portfolio for owner: " + owner);
-        var portfolio = portfolioClient.getPortfolio(owner, false); // Needs to be false to get the stocks
-        log.info("Portfolio: " + portfolio);
-        return portfolio;
+        try {
+            var portfolio = portfolioClient.getPortfolio(owner, false); // Needs to be false to get the stocks
+            log.info("Portfolio: " + portfolio);
+            return portfolio;
+        } catch (Exception e) {
+            log.warning("Failed to retrieve portfolio for owner: " + owner + ". Error: " + e.getMessage());
+            throw new RuntimeException("Portfolio not found for owner: " + owner);
+        }
     }
 }
