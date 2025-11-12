@@ -26,6 +26,8 @@ Stocktrader running on Azure; this setup assumes it was spun up via our Terrafor
 ## Create Azure OpenAI Service
 Create an Azure OpenAI service instance. Note that Azure OpenAI availability varies by region - check the [Azure OpenAI Service regions page](https://docs.microsoft.com/en-us/azure/cognitive-services/openai/concepts/regions) for current availability. Also note that Quarkus LangChain4j which is used by this project has hard-coded requirements (limits) for which ChatGPT API versions it can tolerate, so make sure you are using a compatible API/ChatGPT version. This project uses ChatGPT-4 @ turbo-2024-04-09 with API version 2023-05-15.
 
+**Important**: This guide uses the regional endpoint format (`https://<region>.api.cognitive.microsoft.com`) which is the current Azure standard, not the legacy custom subdomain format.
+
 ```bash
 # Create the Azure OpenAI service
 az cognitiveservices account create \
@@ -53,16 +55,17 @@ Get the API key and create the Kubernetes secret:
 
 ```bash
 # Get the API key
-AZURE_OPENAI_API_KEY=$(az cognitiveservices account keys list \
+export AZURE_OPENAI_API_KEY=$(az cognitiveservices account keys list \
   --name portfolio-assistant-openai \
   --resource-group $RG_STOCKTRADER \
   --query "key1" --output tsv)
 
-# Create the Kubernetes secret with the full deployment endpoint
+# Create the Kubernetes secret with the regional deployment endpoint
+# Note: Use the regional endpoint format, not the custom subdomain format
 kubectl create secret generic azure-openai-secret \
   --namespace stock-trader \
   --from-literal=AZURE_OPENAI_API_KEY="$AZURE_OPENAI_API_KEY" \
-  --from-literal=AZURE_OPENAI_ENDPOINT="https://portfolio-assistant-openai.openai.azure.com/openai/deployments/gpt-4"
+  --from-literal=AZURE_OPENAI_ENDPOINT="https://$AVZONE_OPENAI.api.cognitive.microsoft.com/openai/deployments/gpt-4"
 ```
 
 ## Create the Azure Container Registry (ACR)
@@ -144,8 +147,10 @@ In a third new terminal with the found JWT, run the following with the JWT_ST yo
 ## Application Properties
 If you have reason to change them from the defaults configured in this project, configure the `quarkus.langchain4j.azure-openai.***` Azure OpenAI properties in `application.properties`.
 
-**Important**: The `AZURE_OPENAI_ENDPOINT` environment variable must include the full deployment path:
-`https://<your-service-name>.openai.azure.com/openai/deployments/<deployment-name>`. This is already set in the commands above and should not need to be changed, but it is noted here in case other things are changed which result in this needing to be updated manually. This path configuration allows the Quarkus LangChain4j extension to correctly construct the final API URL by appending `/chat/completions`.
+**Important**: The `AZURE_OPENAI_ENDPOINT` environment variable must include the full deployment path using the **regional endpoint format**:
+`https://<region>.api.cognitive.microsoft.com/openai/deployments/<deployment-name>` (e.g., `https://eastus2.api.cognitive.microsoft.com/openai/deployments/gpt-4`). 
+
+**Note**: Azure has moved away from the custom subdomain format (`https://<service-name>.openai.azure.com`) to the regional endpoint format. Always use the regional endpoint that matches your `$AVZONE_OPENAI` variable. This path configuration allows the Quarkus LangChain4j extension to correctly construct the final API URL by appending `/chat/completions`.
 
 ## Maven Dependencies
 NOTE: The project uses the Quarkus LangChain4j Azure OpenAI extension (already set in `pom.xml`):
@@ -163,6 +168,12 @@ NOTE: The project uses the Quarkus LangChain4j Azure OpenAI extension (already s
 - Verify that Azure OpenAI service is available in your chosen region
 - Check that the GPT-4 model deployment is successful and running
 - Ensure the API key is correctly set in the Kubernetes secret
+- **Endpoint Format**: If you see "Access denied due to invalid subscription key or wrong API endpoint" errors, verify you're using the correct regional endpoint format: `https://<region>.api.cognitive.microsoft.com/openai/deployments/gpt-4`
+
+# Restart the deployment to pick up new configuration
+```bash
+kubectl rollout restart deployment/portfolioassistant -n stock-trader
+```
 
 ## Application Logs
 To check application logs for Azure OpenAI connectivity issues:
