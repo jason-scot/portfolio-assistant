@@ -17,8 +17,6 @@ Stocktrader running on Azure; this setup assumes it was spun up via our Terrafor
 * `export` the following local env variables for ease of use running the scripts below
   * `export RG_STOCKTRADER=`<*Your Azure Resource Group*>
   * `export AVZONE_OPENAI=`<*Availability Zone to deploy OpenAI service to*> (NOTE: for lowest latency, use the closest AZ to the AZ of RG_STOCKTRADER that supports Azure OpenAI service, recognizing that not all AZs support OpenAI)
-  * `export KS_STOCKTRADER=`<*Your Kubernetes Service running Stocktrader*>
-  * `export AZ_SUBSCRIPTION_ID=`<*Your Azure Subscription ID*>
   * `export OWNER_EMAIL=`<*Email Address of the Resources Owner*>
   * `export JWT_ST=`<*Stock Trader App JWT*>
     * To find this, go to your Stocktrader URL, sign in, and find the JWT in cookies (browser local storage), and save the JWT as this environment variable for ease of use
