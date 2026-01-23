@@ -1,7 +1,7 @@
 # Portfolio Assistant
 ### Stock Trader AI Helper with Azure OpenAI
 
-Manage your portfolio with the help of AI. This application is part of the Stock Trader solution and provides insights and recommendations based on your stock portfolio using GPT-4 Turbo via the Azure OpenAI service.
+Manage your portfolio with the help of AI. This application is part of the Stock Trader solution and provides insights and recommendations based on your stock portfolio using GPT-4o via the Azure OpenAI service.
 
 This requires the Portfolio and Stock Quote microservices to be running. Additional microservices may be required as development continues.
 
@@ -24,7 +24,7 @@ Stocktrader running on Azure; this setup assumes it was spun up via our Terrafor
 # Deployment on Azure
 
 ## Create Azure OpenAI Service
-Create an Azure OpenAI service instance. Note that Azure OpenAI availability varies by region - check the [Azure OpenAI Service regions page](https://docs.microsoft.com/en-us/azure/cognitive-services/openai/concepts/regions) for current availability. Also note that Quarkus LangChain4j which is used by this project has hard-coded requirements (limits) for which ChatGPT API versions it can tolerate, so make sure you are using a compatible API/ChatGPT version. This project uses ChatGPT-4 @ turbo-2024-04-09 with API version 2023-05-15.
+Create an Azure OpenAI service instance. Note that Azure OpenAI availability varies by region - check the [Azure OpenAI Service regions page](https://docs.microsoft.com/en-us/azure/cognitive-services/openai/concepts/regions) for current availability. Also note that Quarkus LangChain4j which is used by this project has hard-coded requirements (limits) for which ChatGPT API versions it can tolerate, so make sure you are using a compatible API/ChatGPT version.
 
 **Important**: This guide uses the regional endpoint format (`https://<region>.api.cognitive.microsoft.com`) which is the current Azure standard, not the legacy custom subdomain format.
 
@@ -38,13 +38,13 @@ az cognitiveservices account create \
   --sku S0 \
   --tags owner=$OWNER_EMAIL created-by=$OWNER_EMAIL purpose="AI and Stock Trader work" solution=stocktrader-portfolio-assistant
 
-# Deploy GPT-4 Turbo model
+# Deploy GPT-4o model
 az cognitiveservices account deployment create \
   --name portfolio-assistant-openai \
   --resource-group $RG_STOCKTRADER \
-  --deployment-name gpt-4 \
-  --model-name gpt-4 \
-  --model-version "turbo-2024-04-09" \
+  --deployment-name gpt-4o \
+  --model-name gpt-4o \
+  --model-version "2024-08-06" \
   --model-format OpenAI \
   --sku-capacity 10 \
   --sku-name "Standard"
@@ -65,7 +65,7 @@ export AZURE_OPENAI_API_KEY=$(az cognitiveservices account keys list \
 kubectl create secret generic azure-openai-secret \
   --namespace stock-trader \
   --from-literal=AZURE_OPENAI_API_KEY="$AZURE_OPENAI_API_KEY" \
-  --from-literal=AZURE_OPENAI_ENDPOINT="https://$AVZONE_OPENAI.api.cognitive.microsoft.com/openai/deployments/gpt-4"
+  --from-literal=AZURE_OPENAI_ENDPOINT="https://$AVZONE_OPENAI.api.cognitive.microsoft.com/openai/deployments/gpt-4o"
 ```
 
 ## Create the Azure Container Registry (ACR)
@@ -148,7 +148,7 @@ In a third new terminal with the found JWT, run the following with the JWT_ST yo
 If you have reason to change them from the defaults configured in this project, configure the `quarkus.langchain4j.azure-openai.***` Azure OpenAI properties in `application.properties`.
 
 **Important**: The `AZURE_OPENAI_ENDPOINT` environment variable must include the full deployment path using the **regional endpoint format**:
-`https://<region>.api.cognitive.microsoft.com/openai/deployments/<deployment-name>` (e.g., `https://eastus2.api.cognitive.microsoft.com/openai/deployments/gpt-4`). 
+`https://<region>.api.cognitive.microsoft.com/openai/deployments/<deployment-name>` (e.g., `https://eastus2.api.cognitive.microsoft.com/openai/deployments/gpt-4o`). 
 
 **Note**: Azure has moved away from the custom subdomain format (`https://<service-name>.openai.azure.com`) to the regional endpoint format. Always use the regional endpoint that matches your `$AVZONE_OPENAI` variable. This path configuration allows the Quarkus LangChain4j extension to correctly construct the final API URL by appending `/chat/completions`.
 
@@ -166,9 +166,9 @@ NOTE: The project uses the Quarkus LangChain4j Azure OpenAI extension (already s
 
 ## Azure OpenAI Service Issues
 - Verify that Azure OpenAI service is available in your chosen region
-- Check that the GPT-4 model deployment is successful and running
+- Check that the GPT-4o model deployment is successful and running
 - Ensure the API key is correctly set in the Kubernetes secret
-- **Endpoint Format**: If you see "Access denied due to invalid subscription key or wrong API endpoint" errors, verify you're using the correct regional endpoint format: `https://<region>.api.cognitive.microsoft.com/openai/deployments/gpt-4`
+- **Endpoint Format**: If you see "Access denied due to invalid subscription key or wrong API endpoint" errors, verify you're using the correct regional endpoint format: `https://<region>.api.cognitive.microsoft.com/openai/deployments/gpt-4o`
 
 # Restart the deployment to pick up new configuration
 ```bash
