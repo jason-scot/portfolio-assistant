@@ -1,9 +1,15 @@
 # Portfolio Assistant
-### Stock Trader AI Helper with Azure OpenAI
+### Stock Trader AI Helper with Azure OpenAI and MCP
 
 Manage your portfolio with the help of AI. This application is part of the Stock Trader solution and provides insights and recommendations based on your stock portfolio using GPT-4o via the Azure OpenAI service.
 
-This requires the Portfolio and Stock Quote microservices to be running. Additional microservices may be required as development continues.
+This requires the Portfolio and Stock Quote microservices to be running. Additional microservices may be required as development continues. In this implementation, dedicated MCP servers are deployed on Kubernetes which act as intermediaries between the AI assistant and the Stock Trader microservices, which are unchanged from their own separate deployment and which remain accessible via their original APIs.
+
+**Architecture Components:**
+- **Portfolio Assistant**: Main application with Azure OpenAI integration
+- **MCP Portfolio Server**: Provides portfolio data access via MCP protocol
+- **MCP Stock Quote Server**: Provides stock quote functionality via MCP protocol  
+- **MCP Trade History Server**: Provides trade history access via MCP protocol (NOTE: the trade history service may not be running, as currently configured by the stock trader terraform scripts)
 
 # Prerequisites
 ### On Azure
@@ -93,6 +99,14 @@ az acr build \
 
 NOTE: If not already done, update `azure-deployment.yaml` file to use the image repo you want to use; default value is: `portfolioassistantacr.azurecr.io/ibmstocktrader/portfolioassistant:latest`
 
+## Build and Push MCP Server Images
+```bash
+# Build and push all MCP server images to ACR
+./build-mcp-servers.sh
+```
+
+NOTE: The `azure-deployment.yaml` file includes deployments for both the main application and all MCP servers with the correct image references.
+
 ## Create an ImagePullSecret
 First, enable admin on the ACR
 ```bash
@@ -118,10 +132,45 @@ If the one-liner does not work, then try as follows
   >   --docker-password=<password>
   > ```
 
-## Deploy the image
+## Deploy the portfolio-assistant application and the MCP servers
 ```bash
+# Deploy both the main application and all MCP servers
 kubectl apply -f azure-deployment.yaml -n stock-trader
+
+# Check deployment status
+kubectl get pods -n stock-trader | grep -E '(portfolioassistant|mcp-)'
+
+# Verify MCP servers are healthy
+kubectl get services -n stock-trader | grep mcp
 ```
+
+This will deploy:
+- **portfolioassistant**: Main AI assistant application  
+- **mcp-portfolio-server**: MCP server for portfolio data
+- **mcp-stockquote-server**: MCP server for stock quotes
+- **mcp-tradehistory-server**: MCP server for trade history
+- Associated Kubernetes services for internal communication
+
+# MCP Architecture Details
+
+## Model Context Protocol (MCP) Integration
+The Portfolio Assistant uses the Model Context Protocol to provide AI tools for accessing Stock Trader data. Each MCP server exposes standardized endpoints:
+
+### MCP Server Endpoints
+- **Health Check**: `GET /health` - Returns server health status
+- **List Tools**: `GET /mcp/tools/list` - Returns available MCP tools
+- **Call Tool**: `POST /mcp/tools/call` - Executes a specific tool with arguments
+
+### Available MCP Tools
+- **get_portfolio** (Portfolio Server): Retrieves complete portfolio information including holdings and balance
+- **get_stock_quote** (Stock Quote Server): Gets current stock price and quote information
+- **get_trade_history** (Trade History Server): Retrieves historical trade information for a portfolio owner
+
+### Internal Communication
+The main application communicates with MCP servers using Kubernetes service discovery:
+- `mcp-portfolio-server-service.stock-trader.svc.cluster.local:8000`
+- `mcp-stockquote-server-service.stock-trader.svc.cluster.local:8000`  
+- `mcp-tradehistory-server-service.stock-trader.svc.cluster.local:8000`
 
 # Testing the Application
 
@@ -170,9 +219,33 @@ NOTE: The project uses the Quarkus LangChain4j Azure OpenAI extension (already s
 - Ensure the API key is correctly set in the Kubernetes secret
 - **Endpoint Format**: If you see "Access denied due to invalid subscription key or wrong API endpoint" errors, verify you're using the correct regional endpoint format: `https://<region>.api.cognitive.microsoft.com/openai/deployments/gpt-4o`
 
-# Restart the deployment to pick up new configuration
+# Restart deployments to pick up new configuration
 ```bash
+# Restart main application
 kubectl rollout restart deployment/portfolioassistant -n stock-trader
+
+# Restart MCP servers if needed
+kubectl rollout restart deployment/mcp-portfolio-server -n stock-trader
+kubectl rollout restart deployment/mcp-stockquote-server -n stock-trader
+kubectl rollout restart deployment/mcp-tradehistory-server -n stock-trader
+```
+
+## MCP Server Issues
+To troubleshoot MCP server connectivity:
+
+```bash
+# Check MCP server pod status
+kubectl get pods -n stock-trader | grep mcp
+
+# Check MCP server logs
+kubectl logs deployment/mcp-portfolio-server -n stock-trader
+kubectl logs deployment/mcp-stockquote-server -n stock-trader  
+kubectl logs deployment/mcp-tradehistory-server -n stock-trader
+
+# Test MCP server health endpoints (requires port forwarding)
+kubectl port-forward -n stock-trader svc/mcp-portfolio-server-service 8000:8000 &
+curl http://localhost:8000/health
+curl http://localhost:8000/mcp/tools/list
 ```
 
 ## Application Logs
