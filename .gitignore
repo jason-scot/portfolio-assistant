@@ -46,6 +46,10 @@ nb-configuration.xml
 # TLS Certificates
 .certs/
 
+# Agent & Development AI Assistant (incl. Claude) Skills Cache
+.agents/
+.claude/
+
 #       Copyright 2017 IBM Corp All Rights Reserved
 
 #   Licensed under the Apache License, Version 2.0 (the "License");

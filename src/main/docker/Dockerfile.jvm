@@ -96,6 +96,21 @@ FROM registry.access.redhat.com/ubi9/openjdk-21:1.21
 
 ENV LANGUAGE='en_US:en'
 
+FROM registry.access.redhat.com/ubi9/openjdk-21:1.21
+
+ENV LANGUAGE='en_US:en'
+
+# Install Node.js and agent-browser for web scraping capabilities
+USER 0
+RUN microdnf install -y nodejs npm \
+    # Essential Chrome dependencies available in UBI9
+    alsa-lib atk at-spi2-atk gtk3 libdrm mesa-libgbm \
+    libX11 libXcomposite libXdamage libXext libXfixes \
+    libXrandr libxkbcommon nss cups-libs libXScrnSaver && \
+    microdnf clean all && \
+    npm install -g agent-browser && \
+    agent-browser install && \
+    chown -R 185:185 /home/default/.agent-browser
 
 # We make four distinct layers so if there are application changes the library layers can be re-used
 COPY --chown=185 target/quarkus-app/lib/ /deployments/lib/
