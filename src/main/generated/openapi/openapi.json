@@ -1,6 +1,39 @@
 {
   "openapi" : "3.1.0",
   "paths" : {
+    "/debug/mcp/refresh" : {
+      "get" : {
+        "responses" : {
+          "200" : {
+            "description" : "OK"
+          }
+        },
+        "summary" : "Refresh Tool Discovery",
+        "tags" : [ "Mcp Debug Resource" ]
+      }
+    },
+    "/debug/mcp/status" : {
+      "get" : {
+        "responses" : {
+          "200" : {
+            "description" : "OK"
+          }
+        },
+        "summary" : "Get Mcp Status",
+        "tags" : [ "Mcp Debug Resource" ]
+      }
+    },
+    "/debug/mcp/tools" : {
+      "get" : {
+        "responses" : {
+          "200" : {
+            "description" : "OK"
+          }
+        },
+        "summary" : "Get Discovered Tools",
+        "tags" : [ "Mcp Debug Resource" ]
+      }
+    },
     "/portfolioAdvisor" : {
       "get" : {
         "responses" : {

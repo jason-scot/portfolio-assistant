@@ -35,6 +35,13 @@ spec:
             secretKeyRef:
               name: azure-openai-secret
               key: AZURE_OPENAI_ENDPOINT
+        # Full MCP Client Configuration
+        - name: PORTFOLIO_MCP_HOST
+          value: "mcp-portfolio-server-service.stock-trader.svc.cluster.local"
+        - name: STOCKQUOTE_MCP_HOST
+          value: "mcp-stockquote-server-service.stock-trader.svc.cluster.local"
+        - name: TRADEHISTORY_MCP_HOST
+          value: "mcp-tradehistory-server-service.stock-trader.svc.cluster.local"
         resources:
           limits:
             cpu: 1000m
@@ -91,6 +98,7 @@ spec:
         image: portfolioassistantacr.azurecr.io/stocktrader/mcp-portfolio-server:latest
         ports:
           - containerPort: 8000
+          - containerPort: 9000
         imagePullPolicy: Always
         env:
         - name: PORTFOLIO_API_URL
@@ -135,6 +143,10 @@ spec:
       protocol: TCP
       port: 8000
       targetPort: 8000
+    - name: mcp-protocol
+      protocol: TCP
+      port: 9000
+      targetPort: 9000
   selector:
     app: mcp-portfolio-server
 ---
@@ -161,6 +173,7 @@ spec:
         image: portfolioassistantacr.azurecr.io/stocktrader/mcp-stockquote-server:latest
         ports:
           - containerPort: 8000
+          - containerPort: 9000
         imagePullPolicy: Always
         env:
         - name: STOCKQUOTE_API_URL
@@ -205,6 +218,10 @@ spec:
       protocol: TCP
       port: 8000
       targetPort: 8000
+    - name: mcp-protocol
+      protocol: TCP
+      port: 9000
+      targetPort: 9000
   selector:
     app: mcp-stockquote-server
 ---
@@ -231,6 +248,7 @@ spec:
         image: portfolioassistantacr.azurecr.io/stocktrader/mcp-tradehistory-server:latest
         ports:
           - containerPort: 8000
+          - containerPort: 9000
         imagePullPolicy: Always
         env:
         - name: TRADEHISTORY_API_URL
@@ -275,5 +293,9 @@ spec:
       protocol: TCP
       port: 8000
       targetPort: 8000
+    - name: mcp-protocol
+      protocol: TCP
+      port: 9000
+      targetPort: 9000
   selector:
     app: mcp-tradehistory-server

@@ -154,23 +154,32 @@ This will deploy:
 # MCP Architecture Details
 
 ## Model Context Protocol (MCP) Integration
-The Portfolio Assistant uses the Model Context Protocol to provide AI tools for accessing Stock Trader data. Each MCP server exposes standardized endpoints:
+The Portfolio Assistant uses the **full Model Context Protocol** implementation for AI tool access to Stock Trader data. This includes:
 
-### MCP Server Endpoints
-- **Health Check**: `GET /health` - Returns server health status
-- **List Tools**: `GET /mcp/tools/list` - Returns available MCP tools
-- **Call Tool**: `POST /mcp/tools/call` - Executes a specific tool with arguments
+- **JSON-RPC 2.0 Protocol**: Complete MCP protocol compliance with proper handshake
+- **Dynamic Tool Discovery**: Tools are discovered at runtime from MCP servers
+- **Stdio/TCP Transport**: Supports both stdio and TCP socket communication
+- **Official MCP Library**: Uses the official `mcp` Python library with FastMCP framework
 
-### Available MCP Tools
-- **get_portfolio** (Portfolio Server): Retrieves complete portfolio information including holdings and balance
-- **get_stock_quote** (Stock Quote Server): Gets current stock price and quote information
-- **get_trade_history** (Trade History Server): Retrieves historical trade information for a portfolio owner
+### MCP Server Architecture
+Each MCP server exposes dual transports:
+- **Port 8000**: HTTP health checks for Kubernetes probes
+- **Port 9000**: TCP socket MCP protocol for client communication
+- **stdio**: Standard MCP protocol for direct process communication
+
+### Available MCP Tools (Dynamically Discovered)
+- **get_portfolio** (Portfolio Server): Retrieves complete portfolio information
+- **get_portfolio_notional** (Portfolio Server): Gets portfolio notional value
+- **get_portfolio_returns** (Portfolio Server): Calculates portfolio returns
+- **get_return_on_investment** (Portfolio Server): ROI for specific stocks
+- **get_stock_quote** (Stock Quote Server): Current stock prices
+- **get_trade_history** (Trade History Server): Historical trade information
 
 ### Internal Communication
-The main application communicates with MCP servers using Kubernetes service discovery:
-- `mcp-portfolio-server-service.stock-trader.svc.cluster.local:8000`
-- `mcp-stockquote-server-service.stock-trader.svc.cluster.local:8000`  
-- `mcp-tradehistory-server-service.stock-trader.svc.cluster.local:8000`
+The Java application uses full MCP protocol via TCP sockets:
+- `mcp-portfolio-server-service.stock-trader.svc.cluster.local:9000`
+- `mcp-stockquote-server-service.stock-trader.svc.cluster.local:9000`  
+- `mcp-tradehistory-server-service.stock-trader.svc.cluster.local:9000`
 
 # Testing the Application
 
@@ -186,6 +195,26 @@ In a second new terminal, run
   kubectl port-forward pod/$ASSISTANT_POD_NAME -n stock-trader 8081:8080
   ```
 
+## Test MCP Tool Discovery (Full MCP Verification)
+Before testing the AI functionality, verify that the full MCP implementation is working:
+
+```bash
+# Check MCP server connection status
+curl "http://localhost:8081/debug/mcp/status"
+
+# View all discovered tools from MCP servers
+curl "http://localhost:8081/debug/mcp/tools"
+
+# Refresh tool discovery
+curl "http://localhost:8081/debug/mcp/refresh"
+```
+
+**Expected Results:**
+- Status endpoint should show connected MCP servers
+- Tools endpoint should list dynamically discovered tools (get_portfolio, get_stock_quote, etc.)
+- Each server should report multiple available tools
+
+## Test AI Assistant (WebSocket)
 In a third new terminal with the found JWT, run the following with the JWT_ST you had exported as an environment variable earlier
   ```bash
   wscat -c ws://localhost:8081/ws/stream -H "Authorization: Bearer $JWT_ST"
@@ -231,7 +260,7 @@ kubectl rollout restart deployment/mcp-tradehistory-server -n stock-trader
 ```
 
 ## MCP Server Issues
-To troubleshoot MCP server connectivity:
+To troubleshoot full MCP server connectivity:
 
 ```bash
 # Check MCP server pod status
@@ -245,7 +274,11 @@ kubectl logs deployment/mcp-tradehistory-server -n stock-trader
 # Test MCP server health endpoints (requires port forwarding)
 kubectl port-forward -n stock-trader svc/mcp-portfolio-server-service 8000:8000 &
 curl http://localhost:8000/health
-curl http://localhost:8000/mcp/tools/list
+
+# Test full MCP protocol debug endpoints
+kubectl port-forward pod/$ASSISTANT_POD_NAME -n stock-trader 8081:8080 &
+curl http://localhost:8081/debug/mcp/status
+curl http://localhost:8081/debug/mcp/tools
 ```
 
 ## Application Logs

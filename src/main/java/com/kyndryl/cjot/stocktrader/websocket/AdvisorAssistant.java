@@ -16,15 +16,14 @@
 
 package com.kyndryl.cjot.stocktrader.websocket;
 
-import com.kyndryl.cjot.stocktrader.tools.PortfolioTools;
-import com.kyndryl.cjot.stocktrader.tools.StockTools;
+import com.kyndryl.cjot.stocktrader.tools.DynamicMcpTools;
 import dev.langchain4j.service.SystemMessage;
 import dev.langchain4j.service.UserMessage;
 import io.quarkiverse.langchain4j.RegisterAiService;
 import io.smallrye.mutiny.Multi;
 import jakarta.enterprise.context.SessionScoped;
 
-@RegisterAiService(tools = {PortfolioTools.class, StockTools.class})
+@RegisterAiService(tools = {DynamicMcpTools.class})
 @SystemMessage("""
         You are a portfolio advisor. Your job:
         1) If a portfolio owner is mentioned, FIRST call retrieve_portfolio(owner).

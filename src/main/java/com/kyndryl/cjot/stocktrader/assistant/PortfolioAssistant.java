@@ -16,9 +16,7 @@
 
 package com.kyndryl.cjot.stocktrader.assistant;
 
-import com.kyndryl.cjot.stocktrader.tools.McpPortfolioTools;
-import com.kyndryl.cjot.stocktrader.tools.McpStockTools;
-import com.kyndryl.cjot.stocktrader.tools.McpTradeHistoryTools;
+import com.kyndryl.cjot.stocktrader.tools.DynamicMcpTools;
 import dev.langchain4j.service.SystemMessage;
 import dev.langchain4j.service.UserMessage;
 import io.quarkiverse.langchain4j.RegisterAiService;
@@ -33,7 +31,7 @@ import org.eclipse.microprofile.faulttolerance.Fallback;
 
 //        "You can ask about their risk tolerance, investment goals, and any specific stocks or sectors they are interested in. " +
 //        "You can ask no more than two questions to gather the necessary information. ")
-@RegisterAiService(tools = {McpPortfolioTools.class, McpStockTools.class, McpTradeHistoryTools.class})
+@RegisterAiService(tools = {DynamicMcpTools.class})
 @SystemMessage("""
         You are a helpful stock trading and portfolio management assistant. 
         
